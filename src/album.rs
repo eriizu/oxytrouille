@@ -1,8 +1,10 @@
 use multimap::MultiMap;
 
 use rand::prelude::*;
+use serde::{Deserialize, Serialize};
 
-struct Album {
+#[derive(Serialize, Deserialize)]
+pub struct Album {
     pictures: MultiMap<String, String>,
     last_sent: Option<String>,
 }
@@ -26,6 +28,11 @@ impl Album {
         }
     }
 
+    pub fn add_picture(self: &mut Self, deck_name: &str, picture_link: &str) {
+        self.pictures
+            .insert(deck_name.to_owned(), picture_link.to_owned());
+    }
+
     pub fn deck_count(self: &Self) -> usize {
         self.pictures.len()
     }
@@ -38,24 +45,12 @@ impl Album {
 impl Default for Album {
     fn default() -> Self {
         let mut album = Self::new();
-        album
-            .pictures
-            .insert("mood".to_owned(), "http://example.com/mood1.png".to_owned());
-        album
-            .pictures
-            .insert("mood".to_owned(), "http://example.com/mood2.png".to_owned());
-        album
-            .pictures
-            .insert("mood".to_owned(), "http://example.com/mood3.png".to_owned());
-        album
-            .pictures
-            .insert("tata".to_owned(), "http://example.com/tata.png".to_owned());
-        album
-            .pictures
-            .insert("riri".to_owned(), "http://example.com/riri1.png".to_owned());
-        album
-            .pictures
-            .insert("riri".to_owned(), "http://example.com/riri2.png".to_owned());
+        album.add_picture("mood", "http://example.com/mood1.png");
+        album.add_picture("mood", "http://example.com/mood2.png");
+        album.add_picture("mood", "http://example.com/mood3.png");
+        album.add_picture("tata", "http://example.com/tata.png");
+        album.add_picture("riri", "http://example.com/riri1.png");
+        album.add_picture("riri", "http://example.com/riri2.png");
         album.last_sent = Some("http://example.com/riri1.png".to_owned());
         return album;
     }
