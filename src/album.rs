@@ -1,14 +1,43 @@
-use std::io::Read;
+use std::{error::Error, io::Write};
 
 use multimap::MultiMap;
 
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
+pub enum ErrorKind {
+    NotSourced,
+}
+
+impl ErrorKind {
+    fn to_string(&self) -> &str {
+        match self {
+            Self::NotSourced => {
+                "Album was not sourced from a file and cannot automatically be saved to one."
+            }
+        }
+    }
+}
+
+impl std::error::Error for ErrorKind {
+    fn description(&self) -> &str {
+        self.to_string()
+    }
+}
+
+impl std::fmt::Display for ErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Album error: {}", self.to_string())
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct Album {
     pictures: MultiMap<String, String>,
     last_sent: Option<String>,
+    #[serde(skip)]
+    source_file: Option<String>,
 }
 
 impl Album {
@@ -16,13 +45,27 @@ impl Album {
         Album {
             pictures: MultiMap::new(),
             last_sent: None,
+            source_file: None,
         }
     }
 
     pub fn from_file(path: &str) -> anyhow::Result<Album> {
         let file = std::fs::File::open(path)?;
-        let album: Album = serde_json::from_reader(&file)?;
+        let mut album: Album = serde_json::from_reader(&file)?;
+        album.source_file = Some(path.to_owned());
         return Ok(album);
+    }
+
+    pub fn save(self: &Self) -> Result<(), Box<dyn std::error::Error>> {
+        match &self.source_file {
+            Some(file_name) => {
+                let mut file = std::fs::File::create(&file_name)?;
+                let to_write = serde_json::to_string_pretty(&self)?;
+                writeln!(&mut file, "{}", to_write)?;
+                Ok(())
+            }
+            None => Err(Box::new(ErrorKind::NotSourced)),
+        }
     }
 
     pub fn get_rand_pic(self: &mut Self, deck_name: &str) -> Option<&str> {
@@ -30,6 +73,7 @@ impl Album {
             Some(deck) if deck.len() > 0 => {
                 let mut rng = thread_rng();
                 let n = rng.gen_range(0..deck.len());
+                self.last_sent = Some(deck[n].to_owned());
                 Some(&deck[n])
             }
             _ => None,

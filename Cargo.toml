@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 anyhow                  = "1.0"
+ctrlc                   = { version = "3.0", features = ["termination"] }
 futures                 = "0.3.25"
 multimap                = "0.8.3"
 rand                    = "0.8.5"
