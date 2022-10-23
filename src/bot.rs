@@ -1,12 +1,13 @@
 use futures::stream::StreamExt;
-use std::{env, error::Error, sync::Arc};
+use std::{env, error::Error, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{Cluster, Event};
 use twilight_http::Client as HttpClient;
 use twilight_model::gateway::Intents;
 
-pub async fn start() -> anyhow::Result<()> {
+pub async fn start(mut alb: crate::album::Album) -> anyhow::Result<()> {
     let token = env::var("DISCORD_TOKEN")?;
+    let alb = Arc::new(Mutex::new(alb));
 
     // Use intents to only receive guild message events.
 
@@ -41,7 +42,12 @@ pub async fn start() -> anyhow::Result<()> {
         // Update the cache with the event.
         cache.update(&event);
 
-        tokio::spawn(handle_event(shard_id, event, Arc::clone(&http)));
+        tokio::spawn(handle_event(
+            shard_id,
+            event,
+            Arc::clone(&http),
+            Arc::clone(&alb),
+        ));
     }
 
     Ok(())
@@ -51,6 +57,7 @@ async fn handle_event(
     shard_id: u64,
     event: Event,
     http: Arc<HttpClient>,
+    album: Arc<Mutex<crate::album::Album>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
         Event::MessageCreate(msg) if msg.content.contains("patate") => {
@@ -58,6 +65,31 @@ async fn handle_event(
                 .content("Pong!")?
                 .exec()
                 .await?;
+        }
+        Event::MessageCreate(msg) => {
+            let link = match album.lock() {
+                Ok(mut album) => {
+                    if msg.content.len() > 1 {
+                        if let Some(link) = album.get_rand_pic(&msg.content[1..]) {
+                            Some(link.to_owned())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => None,
+            };
+            match link {
+                Some(link) => {
+                    http.create_message(msg.channel_id)
+                        .content(&link)?
+                        .exec()
+                        .await?;
+                }
+                _ => {}
+            }
         }
         Event::ShardConnected(_) => {
             println!("Connected on shard {shard_id}");

@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use multimap::MultiMap;
 
 use rand::prelude::*;
@@ -15,6 +17,12 @@ impl Album {
             pictures: MultiMap::new(),
             last_sent: None,
         }
+    }
+
+    pub fn from_file(path: &str) -> anyhow::Result<Album> {
+        let file = std::fs::File::open(path)?;
+        let album: Album = serde_json::from_reader(&file)?;
+        return Ok(album);
     }
 
     pub fn get_rand_pic(self: &mut Self, deck_name: &str) -> Option<&str> {
