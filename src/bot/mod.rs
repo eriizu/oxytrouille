@@ -2,8 +2,12 @@ use futures::stream::StreamExt;
 use std::{env, error::Error, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{Cluster, Event};
-use twilight_http::Client as HttpClient;
+use twilight_http::{
+    request::application::command::create_global_command, request::Request, Client as HttpClient,
+};
 use twilight_model::gateway::Intents;
+
+mod command;
 
 pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     let token = env::var("DISCORD_TOKEN")?;
@@ -48,7 +52,9 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     });
 
     // HTTP is separate from the gateway, so create a new client.
-    let http = Arc::new(HttpClient::new(token));
+    let client = Arc::new(HttpClient::new(token));
+
+    slash_command_trial(&client).await?;
 
     // Since we only care about new messages, make the cache only
     // cache new messages.
@@ -64,7 +70,7 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
         tokio::spawn(handle_event(
             shard_id,
             event,
-            Arc::clone(&http),
+            Arc::clone(&client),
             Arc::clone(&alb),
         ));
     }
@@ -72,72 +78,67 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn slash_command_trial(client: &HttpClient) -> Result<(), anyhow::Error> {
+    let application_id = {
+        let response = client.current_user_application().exec().await?;
+
+        response.model().await?.id
+    };
+
+    let interact_client = client.interaction(application_id);
+    const ID: twilight_model::id::Id<twilight_model::id::marker::GuildMarker> =
+        unsafe { twilight_model::id::Id::new_unchecked(416194652744450048) };
+    let tmp = interact_client.create_guild_command(ID);
+
+    let chat_input = tmp.chat_input("add", "adds a picture to an album").unwrap();
+    chat_input.exec().await?;
+
+    let commands = client
+        .interaction(application_id)
+        .guild_commands(ID)
+        .exec()
+        .await?
+        .models()
+        .await?;
+    println!("there are {} guild commands", commands.len());
+    Ok(())
+}
+
 async fn handle_event(
     shard_id: u64,
     event: Event,
-    http: Arc<HttpClient>,
+    client: Arc<HttpClient>,
     album: Arc<Mutex<crate::album::Album>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
         Event::MessageCreate(msg) if msg.content.contains("patate") => {
-            http.create_message(msg.channel_id)
+            client
+                .create_message(msg.channel_id)
                 .content("Pong!")?
                 .exec()
                 .await?;
         }
         Event::MessageCreate(msg) if msg.content.starts_with("!xadd") => {
-            let mut num_added = 0;
-            let mut split = msg.content.split(' ');
-            let mut response = "Je n'ai rien trouvé à ajouter.".to_owned();
-
-            split.next();
-            if let Some(deck_name) = split.next() {
-                match album.lock() {
-                    Ok(mut album) => {
-                        for att in &msg.attachments {
-                            album.add_picture(deck_name, &att.url);
-                            num_added += 1;
-                        }
-                        match album.save() {
-                            Ok(_) => println!("album save sucessful"),
-                            Err(_) => eprintln!("failed to save album, dataloss is possible"),
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-            if num_added > 0 {
-                response = format!("J'ai ajouté {} image·s !", num_added);
-            }
-            http.create_message(msg.channel_id)
-                .content(&response)?
-                .exec()
-                .await?;
+            command::picture_add(msg, &album, &client).await?;
         }
         Event::MessageCreate(msg) if msg.content.len() > 1 => {
-            let link = match album.lock() {
-                Ok(mut album) => {
-                    if let Some(link) = album.get_rand_pic(&msg.content[1..]) {
-                        Some(link.to_owned())
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => None,
-            };
-            match link {
-                Some(link) => {
-                    http.create_message(msg.channel_id)
-                        .content(&link)?
-                        .exec()
-                        .await?;
-                }
-                _ => {}
-            }
+            command::picture_find_and_send(album, msg, client).await?;
         }
         Event::ShardConnected(_) => {
             println!("Connected on shard {shard_id}");
         }
+        Event::InteractionCreate(interact) => match interact.0.kind {
+            twilight_model::application::interaction::InteractionType::ApplicationCommand => {
+                match interact.0.data {
+                    Some(twilight_model::application::interaction::InteractionData::ApplicationCommand(command)) => {
+                        // println!("I have a command!!!!! {}", command.name);
+                        println!("{:?}", command);
+                    },
+                    _ => {}
+                }
+            }
+            _ => {}
+        },
         // Other events here...
         _ => {}
     }

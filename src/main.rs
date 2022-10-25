@@ -13,24 +13,7 @@ async fn main() -> anyhow::Result<()> {
     // let mut file = std::fs::File::create("albums.ron").unwrap();
     // writeln!(&mut file, "{}", ron::to_string(&alb).unwrap()).unwrap();
     // bot::start().await
-    let mut alb = album::Album::from_file("save.json")?;
-    println!("{}", serde_json::to_string_pretty(&alb)?);
-
-    if let Some(link) = alb.get_rand_pic("juju") {
-        println!("{}", link);
-    }
-    if let Some(link) = alb.get_rand_pic("juju") {
-        println!("{}", link);
-    }
-    if let Some(link) = alb.get_rand_pic("juju") {
-        println!("{}", link);
-    }
-    if let Some(link) = alb.get_rand_pic("porg") {
-        println!("{}", link);
-    }
-    if let Some(link) = alb.get_rand_pic("mood") {
-        println!("{}", link);
-    }
+    let alb = album::Album::from_file("save.json")?;
 
     bot::start(alb).await?;
 
