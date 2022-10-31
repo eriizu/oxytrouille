@@ -2,10 +2,8 @@ use futures::stream::StreamExt;
 use std::{env, error::Error, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{Cluster, Event};
-use twilight_http::{
-    request::application::command::create_global_command, request::Request, Client as HttpClient,
-};
-use twilight_model::gateway::Intents;
+use twilight_http::Client as HttpClient;
+use twilight_model::{application, application::interaction};
 
 mod command;
 
@@ -38,7 +36,7 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     // creates as many shards as Discord recommends.
     let (cluster, mut events) = Cluster::new(
         token.to_owned(),
-        Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT,
+        twilight_gateway::Intents::GUILD_MESSAGES | twilight_gateway::Intents::MESSAGE_CONTENT,
     )
     .await?;
     let cluster = Arc::new(cluster);
@@ -91,7 +89,31 @@ async fn slash_command_trial(client: &HttpClient) -> Result<(), anyhow::Error> {
     let tmp = interact_client.create_guild_command(ID);
 
     let chat_input = tmp.chat_input("add", "adds a picture to an album").unwrap();
-    chat_input.exec().await?;
+    let options = vec![
+        application::command::CommandOption::Attachment(
+            application::command::BaseCommandOptionData {
+                description: "image to add".to_owned(),
+                name: "image".to_owned(),
+                required: true,
+                description_localizations: None,
+                name_localizations: None,
+            },
+        ),
+        application::command::CommandOption::String(
+            application::command::ChoiceCommandOptionData {
+                description: "deck name".to_owned(),
+                name: "deck".to_owned(),
+                required: true,
+                description_localizations: None,
+                name_localizations: None,
+                max_length: None,
+                min_length: None,
+                choices: vec![],
+                autocomplete: false,
+            },
+        ),
+    ];
+    chat_input.command_options(&options)?.exec().await?;
 
     let commands = client
         .interaction(application_id)
@@ -127,19 +149,64 @@ async fn handle_event(
         Event::ShardConnected(_) => {
             println!("Connected on shard {shard_id}");
         }
-        Event::InteractionCreate(interact) => match interact.0.kind {
-            twilight_model::application::interaction::InteractionType::ApplicationCommand => {
-                match interact.0.data {
-                    Some(twilight_model::application::interaction::InteractionData::ApplicationCommand(command)) => {
-                        // println!("I have a command!!!!! {}", command.name);
-                        println!("{:?}", command);
-                    },
-                    _ => {}
+        Event::InteractionCreate(interact) => {
+            match interact.0.data {
+                Some(interaction::InteractionData::ApplicationCommand(command)) => {
+                    // need to store image path, and deck in concerns
+                    // image needs to be downloaded and resent
+
+                    // println!("I have a command!!!!! {}", command.name);
+                    println!("{:#?}", command);
+                    match command.resolved {
+                        Some(resolved) => {
+                            for (_, att) in resolved.attachments {
+                                let b = reqwest::get(att.url).await?.bytes().await?.to_vec();
+                                if let Some(chan_id) = interact.0.channel_id {
+                                    let tmp =
+                                        twilight_model::http::attachment::Attachment::from_bytes(
+                                            "test.png".to_owned(),
+                                            b,
+                                            1,
+                                        );
+                                    client
+                                        .create_message(chan_id)
+                                        .attachments(&vec![tmp])?
+                                        .exec()
+                                        .await;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    for opt in command.options {
+                        println!("{:#?}", opt);
+                        match opt.value {
+                            interaction::application_command::CommandOptionValue::Attachment(
+                                value,
+                            ) => {
+                                println!("attachment {}", value);
+                                // if let Some(chan_id) = interact.channel_id {
+                                //     // let tmp =
+                                //     //     twilight_model::http::attachment::Attachment::from_bytes();
+
+                                //     client.create_message(chan_id).attachments(&vec![]);
+                                // }
+                            }
+                            interaction::application_command::CommandOptionValue::String(value) => {
+                                println!("str {}", value);
+                            }
+                            _ => {}
+                        }
+                    }
                 }
+                _ => {}
             }
-            _ => {}
-        },
-        // Other events here...
+            match interact.0.kind {
+                interaction::InteractionType::ApplicationCommand => {}
+                _ => {}
+            }
+            // Other events here...
+        }
         _ => {}
     }
 
