@@ -33,9 +33,15 @@ impl std::fmt::Display for ErrorKind {
 }
 
 #[derive(Serialize, Deserialize)]
+struct Picture {
+    deck: String,
+    url: String,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct Album {
     pictures: MultiMap<String, String>,
-    last_sent: Option<String>,
+    last_sent: Option<Picture>,
     #[serde(skip)]
     source_file: Option<String>,
 }
@@ -73,7 +79,10 @@ impl Album {
             Some(deck) if deck.len() > 0 => {
                 let mut rng = thread_rng();
                 let n = rng.gen_range(0..deck.len());
-                self.last_sent = Some(deck[n].to_owned());
+                self.last_sent = Some(Picture {
+                    deck: deck_name.to_string(),
+                    url: deck[n].to_owned(),
+                });
                 Some(&deck[n])
             }
             _ => None,
@@ -83,6 +92,38 @@ impl Album {
     pub fn add_picture(self: &mut Self, deck_name: &str, picture_link: &str) {
         self.pictures
             .insert(deck_name.to_owned(), picture_link.to_owned());
+    }
+
+    fn deck_picture_remove(
+        pictures: &mut MultiMap<String, String>,
+        deck_name: &str,
+        picture_link: &str,
+    ) {
+        if let Some(deck) = pictures.remove(deck_name) {
+            let deck: Vec<String> = deck
+                .iter()
+                .filter_map(|val| {
+                    if val != picture_link {
+                        Some(val.to_owned())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if deck.len() != 0 {
+                pictures.insert_many(deck_name.to_owned(), deck);
+            }
+        }
+    }
+
+    pub fn remove_picture(self: &mut Self, deck: &str, url: &str) {
+        Self::deck_picture_remove(&mut self.pictures, deck, url);
+    }
+
+    pub fn remove_last(self: &mut Self) {
+        if let Some(picture) = &self.last_sent {
+            Self::deck_picture_remove(&mut self.pictures, &picture.deck, &picture.url);
+        }
     }
 
     pub fn deck_count(self: &Self) -> usize {
@@ -103,7 +144,10 @@ impl Default for Album {
         album.add_picture("tata", "http://example.com/tata.png");
         album.add_picture("riri", "http://example.com/riri1.png");
         album.add_picture("riri", "http://example.com/riri2.png");
-        album.last_sent = Some("http://example.com/riri1.png".to_owned());
+        album.last_sent = Some(Picture {
+            deck: "riri".to_owned(),
+            url: "http://example.com/riri1.png".to_owned(),
+        });
         return album;
     }
 }
@@ -167,5 +211,19 @@ mod tests {
         assert!(link.contains("riri"));
         let link = album.get_rand_pic("riri").unwrap();
         assert!(link.contains("riri"));
+    }
+
+    #[test]
+    fn remove_last() {
+        let mut album = Album::default();
+        let old_len = album.picture_count();
+
+        album.get_rand_pic("tata").unwrap();
+        album.remove_last();
+        match album.get_rand_pic("tata") {
+            Some(_) => panic!(),
+            _ => {}
+        }
+        assert!(album.picture_count().eq(&(old_len - 1)));
     }
 }

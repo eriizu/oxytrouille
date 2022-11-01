@@ -48,14 +48,31 @@ pub async fn picture_add(
                 }
                 match album.save() {
                     Ok(_) => println!("album save sucessful"),
-                    Err(_) => eprintln!("failed to save album, dataloss is possible"),
+                    Err(_) => eprintln!("failed to save album, data loss is possible"),
                 }
             }
-            Err(_) => {}
+            Err(_) => response = "Je n'ai pas réussi a gagner l'accès à l'album.".to_owned(),
         }
     }
     if num_added > 0 {
         response = format!("J'ai ajouté {} image·s !", num_added);
+    }
+    http.create_message(msg.channel_id)
+        .content(&response)?
+        .exec()
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_last(
+    msg: Box<MessageCreate>,
+    album: &Arc<Mutex<crate::album::Album>>,
+    http: &Arc<HttpClient>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let response = "rine".to_owned();
+    match album.lock() {
+        Ok(mut album) => album.remove_last(),
+        Err(_) => {}
     }
     http.create_message(msg.channel_id)
         .content(&response)?
