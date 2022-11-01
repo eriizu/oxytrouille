@@ -134,6 +134,9 @@ async fn handle_event(
         Event::MessageCreate(msg) if msg.content.starts_with("!delete_last") => {
             command::delete_last(msg, &album, &client).await?;
         }
+        Event::MessageCreate(msg) if msg.content.starts_with("!delete_pic") => {
+            command::delete_picture(msg, &album, &client).await?;
+        }
         Event::MessageCreate(msg) if msg.content.len() > 1 => {
             command::picture_find_and_send(album, msg, client).await?;
         }

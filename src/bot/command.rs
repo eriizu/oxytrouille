@@ -70,10 +70,35 @@ pub async fn delete_last(
     http: &Arc<HttpClient>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let response = "rine".to_owned();
+
     match album.lock() {
         Ok(mut album) => album.remove_last(),
         Err(_) => {}
     }
+
+    http.create_message(msg.channel_id)
+        .content(&response)?
+        .exec()
+        .await?;
+    Ok(())
+}
+
+pub async fn delete_picture(
+    msg: Box<MessageCreate>,
+    album: &Arc<Mutex<crate::album::Album>>,
+    http: &Arc<HttpClient>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let response = "rine".to_owned();
+    let mut split = msg.content.split(' ');
+
+    split.next();
+    let deck_name = split.next().unwrap();
+    let url = split.next().unwrap();
+    match album.lock() {
+        Ok(mut album) => album.remove_picture(deck_name, url),
+        Err(_) => {}
+    }
+
     http.create_message(msg.channel_id)
         .content(&response)?
         .exec()

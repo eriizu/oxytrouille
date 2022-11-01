@@ -123,6 +123,7 @@ impl Album {
     pub fn remove_last(self: &mut Self) {
         if let Some(picture) = &self.last_sent {
             Self::deck_picture_remove(&mut self.pictures, &picture.deck, &picture.url);
+            self.last_sent = None;
         }
     }
 
