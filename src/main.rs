@@ -1,6 +1,5 @@
 mod album;
 mod bot;
-mod mongo;
 // use std::io::Write;
 
 #[tokio::main]
