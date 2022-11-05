@@ -1,10 +1,27 @@
 use futures::stream::StreamExt;
-use std::{env, error::Error, sync::Arc, sync::Mutex};
+use std::{env, error::Error, ops::BitAnd, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{Cluster, Event};
 use twilight_http::Client as HttpClient;
 
 use crate::album::Album;
+
+struct BotState {
+    album: Arc<Mutex<crate::album::Album>>,
+    admin_roles: Vec<id::Id<id::marker::RoleMarker>>,
+}
+
+impl BotState {
+    fn new(
+        alb: Arc<Mutex<crate::album::Album>>,
+        admin_roles: Vec<id::Id<id::marker::RoleMarker>>,
+    ) -> Self {
+        Self {
+            album: alb,
+            admin_roles,
+        }
+    }
+}
 
 mod command;
 
@@ -44,7 +61,9 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     // creates as many shards as Discord recommends.
     let (cluster, mut events) = Cluster::new(
         token.to_owned(),
-        twilight_gateway::Intents::GUILD_MESSAGES | twilight_gateway::Intents::MESSAGE_CONTENT,
+        twilight_gateway::Intents::GUILD_MESSAGES
+            | twilight_gateway::Intents::MESSAGE_CONTENT
+            | twilight_gateway::Intents::GUILD_MESSAGE_REACTIONS,
     )
     .await?;
     let cluster = Arc::new(cluster);
@@ -66,6 +85,8 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
         .resource_types(ResourceType::MESSAGE)
         .build();
 
+    let admin_roles = find_roles_admin(&client).await?;
+
     // Process each event as they come in.
     while let Some((shard_id, event)) = events.next().await {
         // Update the cache with the event.
@@ -75,50 +96,44 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
             shard_id,
             event,
             Arc::clone(&client),
-            Arc::clone(&alb),
+            BotState::new(Arc::clone(&alb), Vec::clone(&admin_roles)),
         ));
     }
 
     Ok(())
 }
 
-async fn slash_command_trial(client: &HttpClient) -> Result<(), anyhow::Error> {
-    let application_id = {
-        let response = client.current_user_application().exec().await?;
-        response.model().await?.id
-    };
+async fn find_roles_admin(
+    client: &HttpClient,
+) -> Result<Vec<id::Id<id::marker::RoleMarker>>, anyhow::Error> {
+    let mut out: Vec<id::Id<id::marker::RoleMarker>> = Vec::new();
 
-    let interact_client = client.interaction(application_id);
-    const ID: twilight_model::id::Id<twilight_model::id::marker::GuildMarker> =
-        unsafe { twilight_model::id::Id::new_unchecked(416194652744450048) };
-
-    let commands = client
-        .interaction(application_id)
-        .guild_commands(ID)
-        .exec()
-        .await?
-        .models()
-        .await?;
-    println!("there are {} guild commands", commands.len());
-
-    for cmd in commands {
-        if let Some(cmd_id) = cmd.id {
-            interact_client
-                .delete_guild_command(ID, cmd_id)
-                .exec()
-                .await
-                .unwrap();
+    let roles = client.roles(GUILD_ID).exec().await?.model().await?;
+    for role in roles {
+        if role
+            .permissions
+            .contains(twilight_model::guild::Permissions::ADMINISTRATOR)
+        {
+            out.push(role.id);
         }
     }
 
-    Ok(())
+    return Ok(out);
 }
+
+use twilight_model::id;
+
+const GUILD_ID: id::Id<id::marker::GuildMarker> =
+    unsafe { id::Id::new_unchecked(416194652744450048) };
+
+const PRONOUN_MESSAGE_ID: id::Id<id::marker::MessageMarker> =
+    unsafe { id::Id::new_unchecked(606807344759963688) };
 
 async fn handle_event(
     shard_id: u64,
     event: Event,
     client: Arc<HttpClient>,
-    album: Arc<Mutex<crate::album::Album>>,
+    state: BotState,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
         Event::MessageCreate(msg) if msg.content.contains("patate") => {
@@ -128,17 +143,51 @@ async fn handle_event(
                 .exec()
                 .await?;
         }
-        Event::MessageCreate(msg) if msg.content.starts_with("!xadd") => {
-            command::picture_add(msg, &album, &client).await?;
+        Event::MessageCreate(msg) if msg.content.starts_with("!add") => {
+            if admin_guard(&msg, &state, &client).await? {
+                command::picture_add(msg, &state.album, &client).await?;
+            }
         }
         Event::MessageCreate(msg) if msg.content.starts_with("!delete_last") => {
-            command::delete_last(msg, &album, &client).await?;
+            if admin_guard(&msg, &state, &client).await? {
+                command::delete_last(msg, &state.album, &client).await?;
+            }
         }
         Event::MessageCreate(msg) if msg.content.starts_with("!delete_pic") => {
-            command::delete_picture(msg, &album, &client).await?;
+            if admin_guard(&msg, &state, &client).await? {
+                command::delete_picture(msg, &state.album, &client).await?;
+            }
         }
         Event::MessageCreate(msg) if msg.content.len() > 1 => {
-            command::picture_find_and_send(album, msg, client).await?;
+            command::picture_find_and_send(state.album, msg, client).await?;
+        }
+        Event::ReactionAdd(reaction) => {
+            if reaction.message_id == PRONOUN_MESSAGE_ID {
+                if let twilight_model::channel::ReactionType::Unicode { name } = &reaction.emoji {
+                    let role_id = role_from_emoji(name);
+                    if let Some(role_id) = role_id {
+                        client
+                            .add_guild_member_role(GUILD_ID, reaction.user_id, role_id)
+                            .exec()
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
+        }
+        Event::ReactionRemove(reaction) => {
+            if reaction.message_id == PRONOUN_MESSAGE_ID {
+                if let twilight_model::channel::ReactionType::Unicode { name } = &reaction.emoji {
+                    let role_id = role_from_emoji(name);
+                    if let Some(role_id) = role_id {
+                        client
+                            .remove_guild_member_role(GUILD_ID, reaction.user_id, role_id)
+                            .exec()
+                            .await
+                            .unwrap();
+                    }
+                }
+            }
         }
         Event::ShardConnected(_) => {
             println!("Connected on shard {shard_id}");
@@ -147,4 +196,41 @@ async fn handle_event(
     }
 
     Ok(())
+}
+
+async fn admin_guard(
+    msg: &Box<twilight_model::gateway::payload::incoming::MessageCreate>,
+    state: &BotState,
+    client: &Arc<HttpClient>,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    Ok(if let Some(member) = &msg.member {
+        let first_admin_role = member
+            .roles
+            .iter()
+            .find(|item| state.admin_roles.contains(item));
+        if let Some(_) = first_admin_role {
+            true
+        } else {
+            client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content("Seul un·e admin peut faire ceci.")?
+                .exec()
+                .await?;
+            false
+        }
+    } else {
+        false
+    })
+}
+
+fn role_from_emoji(name: &String) -> Option<id::Id<id::marker::RoleMarker>> {
+    match name.as_str() {
+        "🌻" => unsafe { Some(twilight_model::id::Id::new_unchecked(606807806938447872)) },
+        "🌸" => unsafe { Some(twilight_model::id::Id::new_unchecked(606807957052588042)) },
+        "🍀" => unsafe { Some(twilight_model::id::Id::new_unchecked(606808023108943872)) },
+        "🌼" => unsafe { Some(twilight_model::id::Id::new_unchecked(606808071834173451)) },
+
+        _ => None,
+    }
 }
