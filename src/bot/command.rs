@@ -9,15 +9,19 @@ pub async fn picture_find_and_send(
     msg: Box<MessageCreate>,
     http: Arc<HttpClient>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let link = match album.lock() {
-        Ok(mut album) => {
-            if let Some(link) = album.get_rand_pic(&msg.content[1..]) {
-                Some(link.to_owned())
-            } else {
-                None
+    let link = if let Some(deck_name) = msg.content.strip_prefix("!") {
+        match album.lock() {
+            Ok(mut album) => {
+                if let Some(link) = album.get_rand_pic(deck_name) {
+                    Some(link.to_owned())
+                } else {
+                    None
+                }
             }
+            Err(_) => None,
         }
-        Err(_) => None,
+    } else {
+        None
     };
     Ok(match link {
         Some(link) => {

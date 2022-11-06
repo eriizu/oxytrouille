@@ -158,7 +158,7 @@ async fn handle_event(
                 command::delete_picture(msg, &state.album, &client).await?;
             }
         }
-        Event::MessageCreate(msg) if msg.content.len() > 1 => {
+        Event::MessageCreate(msg) if msg.content.len() > 1 && msg.content.starts_with("!") => {
             command::picture_find_and_send(state.album, msg, client).await?;
         }
         Event::ReactionAdd(reaction) => {
