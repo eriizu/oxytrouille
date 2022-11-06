@@ -134,6 +134,12 @@ impl Album {
     pub fn picture_count(self: &Self) -> usize {
         self.pictures.iter_all().map(|(_, deck)| deck.len()).sum()
     }
+
+    pub fn deck_names<'a>(self: &'a Self) -> impl Iterator<Item = &'a String> {
+        self.pictures
+            .iter_all()
+            .map(|(name, _)| -> &String { name })
+    }
 }
 
 impl Default for Album {

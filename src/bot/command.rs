@@ -34,6 +34,44 @@ pub async fn picture_find_and_send(
     })
 }
 
+pub async fn helper(
+    album: Arc<Mutex<crate::album::Album>>,
+    msg: Box<MessageCreate>,
+    http: Arc<HttpClient>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let reply = match album.lock() {
+        Ok(album) => {
+            let deck_count = album.deck_count();
+            let pic_count = album.picture_count();
+            let mut deck_names: Vec<&String> = album.deck_names().collect();
+            deck_names.sort();
+            let mut names_str = String::new();
+            let mut first = true;
+            for name in deck_names {
+                if first {
+                    first = false;
+                } else {
+                    names_str.push_str(", ");
+                }
+                names_str.push_str(name);
+            }
+            Some(format!(
+                "Nombre d'albums: {}, nombre de photos: {}.\nNom des albums: {}.",
+                deck_count, pic_count, names_str
+            ))
+        }
+        Err(_) => None,
+    };
+    if let Some(reply) = reply {
+        http.create_message(msg.channel_id)
+            .reply(msg.id)
+            .content(&reply)?
+            .exec()
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn picture_add(
     msg: Box<MessageCreate>,
     album: &Arc<Mutex<crate::album::Album>>,

@@ -1,5 +1,5 @@
 use futures::stream::StreamExt;
-use std::{env, error::Error, ops::BitAnd, sync::Arc, sync::Mutex};
+use std::{env, error::Error, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::{Cluster, Event};
 use twilight_http::Client as HttpClient;
@@ -157,6 +157,9 @@ async fn handle_event(
             if admin_guard(&msg, &state, &client).await? {
                 command::delete_picture(msg, &state.album, &client).await?;
             }
+        }
+        Event::MessageCreate(msg) if msg.content.starts_with("!aled") => {
+            command::helper(state.album, msg, client).await?;
         }
         Event::MessageCreate(msg) if msg.content.len() > 1 && msg.content.starts_with("!") => {
             command::picture_find_and_send(state.album, msg, client).await?;
