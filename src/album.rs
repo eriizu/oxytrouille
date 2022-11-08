@@ -33,9 +33,9 @@ impl std::fmt::Display for ErrorKind {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Picture {
-    deck: String,
-    url: String,
+pub struct Picture {
+    pub deck: String,
+    pub url: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -98,9 +98,9 @@ impl Album {
         pictures: &mut MultiMap<String, String>,
         deck_name: &str,
         picture_link: &str,
-    ) {
+    ) -> bool {
         if let Some(deck) = pictures.remove(deck_name) {
-            let deck: Vec<String> = deck
+            let deck2: Vec<String> = deck
                 .iter()
                 .filter_map(|val| {
                     if val != picture_link {
@@ -110,20 +110,26 @@ impl Album {
                     }
                 })
                 .collect();
-            if deck.len() != 0 {
-                pictures.insert_many(deck_name.to_owned(), deck);
+            let deck2_len = deck2.len();
+            if deck2.len() != 0 {
+                pictures.insert_many(deck_name.to_owned(), deck2);
             }
+            return deck2_len != deck.len();
+        } else {
+            return false;
         }
     }
 
-    pub fn remove_picture(self: &mut Self, deck: &str, url: &str) {
-        Self::deck_picture_remove(&mut self.pictures, deck, url);
+    pub fn remove_picture<'a>(self: &mut Self, deck: &'a str, url: &'a str) -> bool {
+        Self::deck_picture_remove(&mut self.pictures, deck, url)
     }
 
-    pub fn remove_last(self: &mut Self) {
+    pub fn remove_last(self: &mut Self) -> Option<Picture> {
         if let Some(picture) = &self.last_sent {
             Self::deck_picture_remove(&mut self.pictures, &picture.deck, &picture.url);
-            self.last_sent = None;
+            return self.last_sent.take();
+        } else {
+            return None;
         }
     }
 
