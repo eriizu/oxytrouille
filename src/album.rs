@@ -75,18 +75,21 @@ impl Album {
     }
 
     pub fn get_rand_pic(self: &mut Self, deck_name: &str) -> Option<&str> {
-        match self.pictures.get_vec(deck_name) {
-            Some(deck) if deck.len() > 0 => {
+        for deck in self.pictures.iter_all() {
+            if deunicode::deunicode(&deck.0).to_lowercase()
+                == deunicode::deunicode(deck_name).to_lowercase()
+            {
+                println!("matched {} with {}", &deck.0, deck_name);
                 let mut rng = thread_rng();
-                let n = rng.gen_range(0..deck.len());
+                let n = rng.gen_range(0..deck.1.len());
                 self.last_sent = Some(Picture {
                     deck: deck_name.to_string(),
-                    url: deck[n].to_owned(),
+                    url: deck.1[n].to_owned(),
                 });
-                Some(&deck[n])
+                return Some(&deck.1[n]);
             }
-            _ => None,
         }
+        return None;
     }
 
     pub fn add_picture(self: &mut Self, deck_name: &str, picture_link: &str) {
@@ -196,7 +199,7 @@ mod tests {
 
         let link = album.get_rand_pic("mood").unwrap();
         assert!(link.contains("mood"));
-        let link = album.get_rand_pic("mood").unwrap();
+        let link = album.get_rand_pic("moOd").unwrap();
         assert!(link.contains("mood"));
         let link = album.get_rand_pic("mood").unwrap();
         assert!(link.contains("mood"));
@@ -208,7 +211,7 @@ mod tests {
 
         let link = album.get_rand_pic("tata").unwrap();
         assert!(link.contains("tata"));
-        let link = album.get_rand_pic("tata").unwrap();
+        let link = album.get_rand_pic("TATA").unwrap();
         assert!(link.contains("tata"));
         let link = album.get_rand_pic("tata").unwrap();
         assert!(link.contains("tata"));
@@ -218,7 +221,7 @@ mod tests {
     fn get_rand_pic_riri() {
         let mut album = Album::default();
 
-        let link = album.get_rand_pic("riri").unwrap();
+        let link = album.get_rand_pic("rIri").unwrap();
         assert!(link.contains("riri"));
         let link = album.get_rand_pic("riri").unwrap();
         assert!(link.contains("riri"));

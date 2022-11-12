@@ -117,7 +117,8 @@ pub async fn delete_last(
     album: &Arc<Mutex<crate::album::Album>>,
     http: &Arc<HttpClient>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let response = "Je ne me souvient pas de la dernière image envoyée, je n'ai rien supprimé.";
+    let response =
+        "Je ne me souvient pas de la dernière image envoyée, donc je n'ai rien supprimé.";
 
     let removed = match album.lock() {
         Ok(mut album) => album.remove_last(),
