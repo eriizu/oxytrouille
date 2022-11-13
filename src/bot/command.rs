@@ -2,6 +2,7 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use twilight_http::Client as HttpClient;
+use twilight_model::channel::message::AllowedMentions;
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
 async fn reply_in_chann(
@@ -9,7 +10,9 @@ async fn reply_in_chann(
     msg: Box<MessageCreate>,
     response: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mentions = AllowedMentions::builder().build();
     http.create_message(msg.channel_id)
+        .allowed_mentions(Some(&mentions))
         .reply(msg.id)
         .content(response)?
         .exec()
