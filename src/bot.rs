@@ -129,6 +129,12 @@ const GUILD_ID: id::Id<id::marker::GuildMarker> =
 const PRONOUN_MESSAGE_ID: id::Id<id::marker::MessageMarker> =
     unsafe { id::Id::new_unchecked(606807344759963688) };
 
+const PROTECTED_USER_ID: id::Id<id::marker::UserMarker> =
+    unsafe { id::Id::new_unchecked(350629483042177025) };
+
+const BAN_EMOJI_ID: id::Id<id::marker::EmojiMarker> =
+    unsafe { id::Id::new_unchecked(519852990119673871) };
+
 async fn handle_event(
     shard_id: u64,
     event: Event,
@@ -136,10 +142,11 @@ async fn handle_event(
     state: BotState,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
+        Event::MessageCreate(msg) if msg.author.bot => {}
         Event::MessageCreate(msg) if msg.content.contains("patate") => {
             client
                 .create_message(msg.channel_id)
-                .content("Pong!")?
+                .content("Le Bhoutan (/bu.tɑ̃/5 ; en dzongkha : འབྲུག་ཡུལ་, Druk Yul, translittération Wylie : ʼbrug-yul, /ʈuk̚˩.yː˩/)6, en forme longue le royaume du Bhoutan, est un pays d’Asie du Sud, sans accès à la mer. Il est situé dans l’Est de la chaîne de l’Himalaya, enclavé entre l’Inde au sud, à l’est et à l’ouest-sud-ouest, avec laquelle il partage 605 km de frontières terrestres, et la Chine (région autonome du Tibet) au nord et à l'ouest-nord-ouest, avec 470 km de frontières. Plus à l'ouest, il est séparé du Népal par l'État indien du Sikkim, et plus au sud il est séparé du Bangladesh par les États indiens d'Assam et du Bengale-Occidental. Sa capitale et sa plus grande ville est Thimphou.")?
                 .exec()
                 .await?;
         }
@@ -163,6 +170,44 @@ async fn handle_event(
         }
         Event::MessageCreate(msg) if msg.content.len() > 1 && msg.content.starts_with("!") => {
             command::picture_find_and_send(state.album, msg, client).await?;
+        }
+        Event::MessageCreate(msg)
+            if msg
+                .mentions
+                .iter()
+                .filter(|mention| mention.id == PROTECTED_USER_ID)
+                .count()
+                != 0
+                && !is_admin(&msg, &state).await? =>
+        {
+            let emoji = twilight_http::request::channel::reaction::RequestReactionType::Custom {
+                id: BAN_EMOJI_ID,
+                name: Some("ban"),
+            };
+            client
+                .create_reaction(msg.channel_id, msg.id, &emoji)
+                .exec()
+                .await?;
+            client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content(
+                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
+                )?
+                .exec()
+                .await?;
+            client
+                .create_message(msg.channel_id)
+                .content("Attention !!!\nIl ne faut pas mentionner Julia, parce que les mentions Discord ça peut vite devenir vraiment très relou.\n\nSi vous répondez a un de ses messages, cliquez toujours sur \"@ ACTIVÉ\" (au dessus à droite de la boite de texte) avant l'envoi pour qu'il affiche \"@ DÉSACTIVÉ\"\n\nNE SUPPRIMEZ PAS VOTRE MESSAGE c'est encore pire de recevoir une mention et de ne pas pouvoir retrouver le message d'où elle provient.")?
+                .exec()
+                .await?;
+            client
+                .create_message(msg.channel_id)
+                .content(
+                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
+                )?
+                .exec()
+                .await?;
         }
         Event::ReactionAdd(reaction) => {
             if reaction.message_id == PRONOUN_MESSAGE_ID {
@@ -206,6 +251,23 @@ async fn admin_guard(
     state: &BotState,
     client: &Arc<HttpClient>,
 ) -> Result<bool, Box<dyn Error + Send + Sync>> {
+    let is_adm = is_admin(msg, state).await?;
+
+    if !is_adm {
+        client
+            .create_message(msg.channel_id)
+            .reply(msg.id)
+            .content("Seul un·e admin peut faire ceci.")?
+            .exec()
+            .await?;
+    }
+    Ok(is_adm)
+}
+
+async fn is_admin(
+    msg: &Box<twilight_model::gateway::payload::incoming::MessageCreate>,
+    state: &BotState,
+) -> Result<bool, Box<dyn Error + Send + Sync>> {
     Ok(if let Some(member) = &msg.member {
         let first_admin_role = member
             .roles
@@ -214,12 +276,6 @@ async fn admin_guard(
         if let Some(_) = first_admin_role {
             true
         } else {
-            client
-                .create_message(msg.channel_id)
-                .reply(msg.id)
-                .content("Seul un·e admin peut faire ceci.")?
-                .exec()
-                .await?;
             false
         }
     } else {
