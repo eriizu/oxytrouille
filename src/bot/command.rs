@@ -169,3 +169,81 @@ pub async fn delete_picture(
     reply_in_chann(http, msg, response).await?;
     Ok(())
 }
+
+async fn get_gild_members(
+    guild_id: &twilight_model::id::Id<twilight_model::id::marker::GuildMarker>,
+    http: &Arc<HttpClient>,
+) -> Result<Vec<twilight_model::guild::member::Member>, &'static str> {
+    let Ok(resp) = http.guild_members(*guild_id).exec().await else {
+        return Err("api didn't respond with the member list");
+    };
+
+    let Ok(members) = resp.models().await else {
+        return Err("could not make member models out of api response");
+    };
+    return Ok(members);
+}
+
+async fn member_reset_nickname(
+    http: &Arc<HttpClient>,
+    guild_id: twilight_model::id::Id<twilight_model::id::marker::GuildMarker>,
+    user_id: twilight_model::id::Id<twilight_model::id::marker::UserMarker>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut update_builder = http.update_guild_member(guild_id, user_id);
+    update_builder = update_builder.nick(None)?;
+    update_builder.exec().await?;
+    Ok(())
+}
+pub async fn reset_nick(
+    msg: Box<MessageCreate>,
+    http: &Arc<HttpClient>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut split = msg.content.split(' ');
+    split.next();
+    let to_reset: Vec<&str> = split.collect();
+    let Some(guild_id) = msg.guild_id else {
+        reply_in_chann(http, msg, "Je n'ai pas réussi à récupérer l'identifiant de la guilde").await?;
+        return Ok(());
+    };
+    let resp = http
+        .guild_members(guild_id)
+        .limit(1000)?
+        .exec()
+        .await
+        .unwrap();
+    let members = resp.models().await.unwrap();
+    //   let Ok(members) = get_gild_members(&guild_id, http).await else {
+    //       reply_in_chann(http, msg, "Je n'ai pas réussi à récupérer la liste de membres").await?;
+    //       return Ok(());
+    //   };
+    let members_to_reset = members.iter().filter(|item| match &item.nick {
+        Some(nick) if to_reset.contains(&(nick as &str)) => true,
+        _ => false,
+    });
+
+    let mut changed_str: String = String::new();
+    let mut failed_str: String = String::new();
+    let mut response = "J'ai mis à zéro les noms d'utilisateur de :".to_owned();
+    for member in members_to_reset {
+        match member_reset_nickname(http, guild_id, member.user.id).await {
+            Ok(_) => changed_str.push_str(&format!(
+                " {}#{}",
+                member.user.name, member.user.discriminator
+            )),
+            Err(err) => {
+                failed_str.push_str(&format!(
+                    " {}#{}",
+                    member.user.name, member.user.discriminator
+                ));
+                eprintln!("failed to change nickanme because: {}", err)
+            }
+        }
+    }
+    response.push_str(&changed_str);
+    if failed_str.len() > 0 {
+        response.push_str("\nJe n'ai pas réussi à changer ceux de :");
+        response.push_str(&failed_str);
+    }
+    reply_in_chann(http, msg, &response).await?;
+    Ok(())
+}

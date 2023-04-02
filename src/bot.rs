@@ -63,7 +63,8 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
         token.to_owned(),
         twilight_gateway::Intents::GUILD_MESSAGES
             | twilight_gateway::Intents::MESSAGE_CONTENT
-            | twilight_gateway::Intents::GUILD_MESSAGE_REACTIONS,
+            | twilight_gateway::Intents::GUILD_MESSAGE_REACTIONS
+            | twilight_model::gateway::Intents::GUILD_MEMBERS,
     )
     .await?;
     let cluster = Arc::new(cluster);
@@ -143,12 +144,10 @@ async fn handle_event(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
         Event::MessageCreate(msg) if msg.author.bot => {}
-        Event::MessageCreate(msg) if msg.content.contains("patate") => {
-            client
-                .create_message(msg.channel_id)
-                .content("Le Bhoutan (/bu.tɑ̃/5 ; en dzongkha : འབྲུག་ཡུལ་, Druk Yul, translittération Wylie : ʼbrug-yul, /ʈuk̚˩.yː˩/)6, en forme longue le royaume du Bhoutan, est un pays d’Asie du Sud, sans accès à la mer. Il est situé dans l’Est de la chaîne de l’Himalaya, enclavé entre l’Inde au sud, à l’est et à l’ouest-sud-ouest, avec laquelle il partage 605 km de frontières terrestres, et la Chine (région autonome du Tibet) au nord et à l'ouest-nord-ouest, avec 470 km de frontières. Plus à l'ouest, il est séparé du Népal par l'État indien du Sikkim, et plus au sud il est séparé du Bangladesh par les États indiens d'Assam et du Bengale-Occidental. Sa capitale et sa plus grande ville est Thimphou.")?
-                .exec()
-                .await?;
+        Event::MessageCreate(msg) if msg.content.starts_with("!reset_nick") => {
+            if admin_guard(&msg, &state, &client).await? {
+                command::reset_nick(msg, &client).await?;
+            }
         }
         Event::MessageCreate(msg) if msg.content.starts_with("!add") => {
             if admin_guard(&msg, &state, &client).await? {
