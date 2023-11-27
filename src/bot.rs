@@ -149,6 +149,16 @@ async fn handle_event(
                 command::reset_nick(msg, &client).await?;
             }
         }
+        Event::MessageCreate(msg) if msg.content.starts_with("!gouvernement") => {
+            client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content(
+                    "https://clips.twitch.tv/FriendlyResilientSlothShazBotstix-HWxnFQWq6iPPsVZf",
+                )?
+                .exec()
+                .await?;
+        }
         Event::MessageCreate(msg) if msg.content.starts_with("!add") => {
             if admin_guard(&msg, &state, &client).await? {
                 command::picture_add(msg, &state.album, &client).await?;
