@@ -1,7 +1,6 @@
-use futures::stream::StreamExt;
 use std::{env, error::Error, sync::Arc, sync::Mutex};
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
-use twilight_gateway::{Cluster, Event};
+use twilight_gateway::Event;
 use twilight_http::Client as HttpClient;
 
 use crate::album::Album;
@@ -52,56 +51,54 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     let token = env::var("DISCORD_TOKEN")?;
     let alb = Arc::new(Mutex::new(alb));
 
+    tracing_subscriber::fmt::init();
+    tracing::error!("hello");
+
     if let Err(err) = set_sigint_handler(Arc::clone(&alb)) {
-        eprintln!("failed to set a sigint handler, album will not be save when quitting.");
-        eprintln!("{}", err);
+        tracing::error!(
+            ?err,
+            "failed to set a sigint handler, album will not be save when quitting."
+        );
+        //eprintln!("failed to set a sigint handler, album will not be save when quitting.");
+        //eprintln!("{}", err);
     }
 
-    // A cluster is a manager for multiple shards that by default
-    // creates as many shards as Discord recommends.
-    let (cluster, mut events) = Cluster::new(
-        token.to_owned(),
-        twilight_gateway::Intents::GUILD_MESSAGES
-            | twilight_gateway::Intents::MESSAGE_CONTENT
-            | twilight_gateway::Intents::GUILD_MESSAGE_REACTIONS
-            | twilight_model::gateway::Intents::GUILD_MEMBERS,
-    )
-    .await?;
-    let cluster = Arc::new(cluster);
+    let intents = twilight_gateway::Intents::GUILD_MESSAGES
+        | twilight_gateway::Intents::MESSAGE_CONTENT
+        | twilight_gateway::Intents::GUILD_MESSAGE_REACTIONS
+        | twilight_model::gateway::Intents::GUILD_MEMBERS;
 
-    // Start up the cluster.
-    let cluster_spawn = Arc::clone(&cluster);
+    let mut shard =
+        twilight_gateway::Shard::new(twilight_gateway::ShardId::ONE, token.clone(), intents);
 
-    // Start all shards in the cluster in the background.
-    tokio::spawn(async move {
-        cluster_spawn.up().await;
-    });
-
-    // HTTP is separate from the gateway, so create a new client.
     let client = Arc::new(HttpClient::new(token));
-
-    // Since we only care about new messages, make the cache only
-    // cache new messages.
-    let cache = InMemoryCache::builder()
-        .resource_types(ResourceType::MESSAGE)
-        .build();
 
     let admin_roles = find_roles_admin(&client).await?;
 
-    // Process each event as they come in.
-    while let Some((shard_id, event)) = events.next().await {
-        // Update the cache with the event.
+    let cache = twilight_cache_inmemory::InMemoryCache::new();
+
+    loop {
+        let event = match shard.next_event().await {
+            Ok(event) => event,
+            Err(source) => {
+                tracing::warn!(?source, "error receiving event");
+                eprintln!("error receiving event {:?}", source);
+                if source.is_fatal() {
+                    break;
+                }
+                continue;
+            }
+        };
+
         cache.update(&event);
 
         tokio::spawn(handle_event(
-            shard_id,
             event,
             Arc::clone(&client),
             BotState::new(Arc::clone(&alb), Vec::clone(&admin_roles)),
         ));
     }
-
-    Ok(())
+    return Ok(());
 }
 
 async fn find_roles_admin(
@@ -109,7 +106,7 @@ async fn find_roles_admin(
 ) -> Result<Vec<id::Id<id::marker::RoleMarker>>, anyhow::Error> {
     let mut out: Vec<id::Id<id::marker::RoleMarker>> = Vec::new();
 
-    let roles = client.roles(GUILD_ID).exec().await?.model().await?;
+    let roles = client.roles(GUILD_ID).await?.model().await?;
     for role in roles {
         if role
             .permissions
@@ -136,14 +133,27 @@ const PROTECTED_USER_ID: id::Id<id::marker::UserMarker> =
 const BAN_EMOJI_ID: id::Id<id::marker::EmojiMarker> =
     unsafe { id::Id::new_unchecked(519852990119673871) };
 
+async fn pre_handle_event(
+    event: Event,
+    client: Arc<HttpClient>,
+    state: BotState,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let result = handle_event(event, client, state).await;
+    match result {
+        Err(error) => eprintln!("{}", error),
+        _ => {}
+    }
+    Ok(())
+}
 async fn handle_event(
-    shard_id: u64,
     event: Event,
     client: Arc<HttpClient>,
     state: BotState,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     match event {
-        Event::MessageCreate(msg) if msg.author.bot => {}
+        Event::MessageCreate(msg) if msg.author.bot => {
+            eprintln!("ignoring bot command from {}", msg.author.id);
+        }
         Event::MessageCreate(msg) if msg.content.starts_with("!reset_nick") => {
             if admin_guard(&msg, &state, &client).await? {
                 command::reset_nick(msg, &client).await?;
@@ -156,7 +166,6 @@ async fn handle_event(
                 .content(
                     "https://clips.twitch.tv/FriendlyResilientSlothShazBotstix-HWxnFQWq6iPPsVZf",
                 )?
-                .exec()
                 .await?;
         }
         Event::MessageCreate(msg) if msg.content.starts_with("!add") => {
@@ -195,7 +204,6 @@ async fn handle_event(
             };
             client
                 .create_reaction(msg.channel_id, msg.id, &emoji)
-                .exec()
                 .await?;
             client
                 .create_message(msg.channel_id)
@@ -203,29 +211,27 @@ async fn handle_event(
                 .content(
                     "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
                 )?
-                .exec()
                 .await?;
             client
                 .create_message(msg.channel_id)
                 .content("Attention !!!\nIl ne faut pas mentionner Julia, parce que les mentions Discord ça peut vite devenir vraiment très relou.\n\nSi vous répondez a un de ses messages, cliquez toujours sur \"@ ACTIVÉ\" (au dessus à droite de la boite de texte) avant l'envoi pour qu'il affiche \"@ DÉSACTIVÉ\"\n\nNE SUPPRIMEZ PAS VOTRE MESSAGE c'est encore pire de recevoir une mention et de ne pas pouvoir retrouver le message d'où elle provient.")?
-                .exec()
                 .await?;
             client
                 .create_message(msg.channel_id)
                 .content(
                     "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
                 )?
-                .exec()
                 .await?;
         }
         Event::ReactionAdd(reaction) => {
             if reaction.message_id == PRONOUN_MESSAGE_ID {
-                if let twilight_model::channel::ReactionType::Unicode { name } = &reaction.emoji {
+                if let twilight_model::channel::message::ReactionType::Unicode { name } =
+                    &reaction.emoji
+                {
                     let role_id = role_from_emoji(name);
                     if let Some(role_id) = role_id {
                         client
                             .add_guild_member_role(GUILD_ID, reaction.user_id, role_id)
-                            .exec()
                             .await
                             .unwrap();
                     }
@@ -234,20 +240,21 @@ async fn handle_event(
         }
         Event::ReactionRemove(reaction) => {
             if reaction.message_id == PRONOUN_MESSAGE_ID {
-                if let twilight_model::channel::ReactionType::Unicode { name } = &reaction.emoji {
+                if let twilight_model::channel::message::ReactionType::Unicode { name } =
+                    &reaction.emoji
+                {
                     let role_id = role_from_emoji(name);
                     if let Some(role_id) = role_id {
                         client
                             .remove_guild_member_role(GUILD_ID, reaction.user_id, role_id)
-                            .exec()
                             .await
                             .unwrap();
                     }
                 }
             }
         }
-        Event::ShardConnected(_) => {
-            println!("Connected on shard {shard_id}");
+        Event::MessageCreate(message) => {
+            eprintln!("nothing to do with {:?}", message);
         }
         _ => {}
     }
@@ -267,7 +274,6 @@ async fn admin_guard(
             .create_message(msg.channel_id)
             .reply(msg.id)
             .content("Seul un·e admin peut faire ceci.")?
-            .exec()
             .await?;
     }
     Ok(is_adm)

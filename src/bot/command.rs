@@ -10,12 +10,12 @@ async fn reply_in_chann(
     msg: Box<MessageCreate>,
     response: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mentions = AllowedMentions::builder().build();
+    let mut mentions = AllowedMentions::default();
+    mentions.replied_user = true;
     http.create_message(msg.channel_id)
         .allowed_mentions(Some(&mentions))
         .reply(msg.id)
         .content(response)?
-        .exec()
         .await?;
     Ok(())
 }
@@ -173,7 +173,7 @@ pub async fn delete_picture(
 async fn get_gild_members(
     guild_id: &twilight_model::id::Id<twilight_model::id::marker::GuildMarker>,
     http: &Arc<HttpClient>,
-) -> Result<Vec<twilight_model::guild::member::Member>, &'static str> {
+) -> Result<Vec<twilight_model::guild::Member>, &'static str> {
     let Ok(resp) = http.guild_members(*guild_id).exec().await else {
         return Err("api didn't respond with the member list");
     };
@@ -202,7 +202,12 @@ pub async fn reset_nick(
     split.next();
     let to_reset: Vec<&str> = split.collect();
     let Some(guild_id) = msg.guild_id else {
-        reply_in_chann(http, msg, "Je n'ai pas réussi à récupérer l'identifiant de la guilde").await?;
+        reply_in_chann(
+            http,
+            msg,
+            "Je n'ai pas réussi à récupérer l'identifiant de la guilde",
+        )
+        .await?;
         return Ok(());
     };
     let resp = http
