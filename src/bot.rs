@@ -51,15 +51,12 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     let alb = Arc::new(Mutex::new(alb));
 
     tracing_subscriber::fmt::init();
-    tracing::error!("hello");
 
     if let Err(err) = set_sigint_handler(Arc::clone(&alb)) {
         tracing::error!(
             ?err,
             "failed to set a sigint handler, album will not be save when quitting."
         );
-        //eprintln!("failed to set a sigint handler, album will not be save when quitting.");
-        //eprintln!("{}", err);
     }
 
     let intents = twilight_gateway::Intents::GUILD_MESSAGES
@@ -76,12 +73,13 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
 
     let cache = twilight_cache_inmemory::InMemoryCache::new();
 
+    tracing::info!("ready, starting loop");
+
     loop {
         let event = match shard.next_event().await {
             Ok(event) => event,
             Err(source) => {
                 tracing::warn!(?source, "error receiving event");
-                eprintln!("error receiving event {:?}", source);
                 if source.is_fatal() {
                     break;
                 }
@@ -132,19 +130,6 @@ const PROTECTED_USER_ID: id::Id<id::marker::UserMarker> =
 const BAN_EMOJI_ID: id::Id<id::marker::EmojiMarker> =
     unsafe { id::Id::new_unchecked(519852990119673871) };
 
-async fn pre_handle_event(
-    event: Event,
-    client: Arc<HttpClient>,
-    state: BotState,
-) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let result = handle_event(event, client, state).await;
-    match result {
-        Err(error) => eprintln!("{}", error),
-        _ => {}
-    }
-    Ok(())
-}
-#[tracing::instrument(skip(client, state))]
 async fn handle_event(
     event: Event,
     client: Arc<HttpClient>,
@@ -255,7 +240,9 @@ async fn handle_event(
             }
         }
         Event::MessageCreate(message) => {
-            tracing::info!(?message, "no action for this message");
+            let author = &message.author.name;
+            let content = &message.content;
+            tracing::debug!(author, content, "no action for this message");
             //eprintln!("nothing to do with {:?}", message);
         }
         _ => {}
