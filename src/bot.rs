@@ -1,5 +1,4 @@
 use std::{env, error::Error, sync::Arc, sync::Mutex};
-use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_gateway::Event;
 use twilight_http::Client as HttpClient;
 
@@ -145,11 +144,13 @@ async fn pre_handle_event(
     }
     Ok(())
 }
+#[tracing::instrument(skip(client, state))]
 async fn handle_event(
     event: Event,
     client: Arc<HttpClient>,
     state: BotState,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //let trace = tracing::span!(tracing::Level::INFO, "handle event");
     match event {
         Event::MessageCreate(msg) if msg.author.bot => {
             eprintln!("ignoring bot command from {}", msg.author.id);
@@ -254,7 +255,8 @@ async fn handle_event(
             }
         }
         Event::MessageCreate(message) => {
-            eprintln!("nothing to do with {:?}", message);
+            tracing::info!(?message, "no action for this message");
+            //eprintln!("nothing to do with {:?}", message);
         }
         _ => {}
     }

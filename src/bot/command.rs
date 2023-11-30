@@ -10,6 +10,8 @@ async fn reply_in_chann(
     msg: Box<MessageCreate>,
     response: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // NOTE: Allowed mentions are there to ensure we don't mention someone
+    // by accident.
     let mut mentions = AllowedMentions::default();
     mentions.replied_user = true;
     http.create_message(msg.channel_id)
@@ -174,7 +176,7 @@ async fn get_gild_members(
     guild_id: &twilight_model::id::Id<twilight_model::id::marker::GuildMarker>,
     http: &Arc<HttpClient>,
 ) -> Result<Vec<twilight_model::guild::Member>, &'static str> {
-    let Ok(resp) = http.guild_members(*guild_id).exec().await else {
+    let Ok(resp) = http.guild_members(*guild_id).await else {
         return Err("api didn't respond with the member list");
     };
 
@@ -191,7 +193,7 @@ async fn member_reset_nickname(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut update_builder = http.update_guild_member(guild_id, user_id);
     update_builder = update_builder.nick(None)?;
-    update_builder.exec().await?;
+    update_builder.await?;
     Ok(())
 }
 pub async fn reset_nick(
@@ -210,12 +212,7 @@ pub async fn reset_nick(
         .await?;
         return Ok(());
     };
-    let resp = http
-        .guild_members(guild_id)
-        .limit(1000)?
-        .exec()
-        .await
-        .unwrap();
+    let resp = http.guild_members(guild_id).limit(1000)?.await.unwrap();
     let members = resp.models().await.unwrap();
     //   let Ok(members) = get_gild_members(&guild_id, http).await else {
     //       reply_in_chann(http, msg, "Je n'ai pas réussi à récupérer la liste de membres").await?;
@@ -249,6 +246,7 @@ pub async fn reset_nick(
         response.push_str("\nJe n'ai pas réussi à changer ceux de :");
         response.push_str(&failed_str);
     }
+
     reply_in_chann(http, msg, &response).await?;
     Ok(())
 }
