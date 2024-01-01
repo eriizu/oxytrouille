@@ -103,8 +103,11 @@ async fn find_roles_admin(
 ) -> Result<Vec<id::Id<id::marker::RoleMarker>>, anyhow::Error> {
     let mut out: Vec<id::Id<id::marker::RoleMarker>> = Vec::new();
 
-    let roles = client.roles(GUILD_ID).await?.model().await?;
-    for role in roles {
+    let jp_roles = client.roles(JAPANESE_GUILD_ID).await?.model().await?;
+    let st_roles = client.roles(STREAMING_GUILD_ID).await?.model().await?;
+
+    let iter = jp_roles.iter().chain(st_roles.iter());
+    for role in iter {
         if role
             .permissions
             .contains(twilight_model::guild::Permissions::ADMINISTRATOR)
@@ -118,8 +121,11 @@ async fn find_roles_admin(
 
 use twilight_model::id;
 
-const GUILD_ID: id::Id<id::marker::GuildMarker> =
+const JAPANESE_GUILD_ID: id::Id<id::marker::GuildMarker> =
     unsafe { id::Id::new_unchecked(416194652744450048) };
+
+const STREAMING_GUILD_ID: id::Id<id::marker::GuildMarker> =
+    unsafe { id::Id::new_unchecked(1102170640649293864) };
 
 const PRONOUN_MESSAGE_ID: id::Id<id::marker::MessageMarker> =
     unsafe { id::Id::new_unchecked(606807344759963688) };
@@ -217,7 +223,7 @@ async fn handle_event(
                     let role_id = role_from_emoji(name);
                     if let Some(role_id) = role_id {
                         client
-                            .add_guild_member_role(GUILD_ID, reaction.user_id, role_id)
+                            .add_guild_member_role(JAPANESE_GUILD_ID, reaction.user_id, role_id)
                             .await
                             .unwrap();
                     }
@@ -232,7 +238,7 @@ async fn handle_event(
                     let role_id = role_from_emoji(name);
                     if let Some(role_id) = role_id {
                         client
-                            .remove_guild_member_role(GUILD_ID, reaction.user_id, role_id)
+                            .remove_guild_member_role(JAPANESE_GUILD_ID, reaction.user_id, role_id)
                             .await
                             .unwrap();
                     }
