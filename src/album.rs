@@ -63,15 +63,14 @@ impl Album {
     }
 
     pub fn save(self: &Self) -> Result<(), Box<dyn std::error::Error>> {
-        match &self.source_file {
-            Some(file_name) => {
-                let mut file = std::fs::File::create(&file_name)?;
-                let to_write = serde_json::to_string_pretty(&self)?;
-                writeln!(&mut file, "{}", to_write)?;
-                Ok(())
-            }
-            None => Err(Box::new(ErrorKind::NotSourced)),
-        }
+        let file_name = self
+            .source_file
+            .as_ref()
+            .ok_or(Box::new(ErrorKind::NotSourced))?;
+        let mut file = std::fs::File::create(&file_name)?;
+        let to_write = serde_json::to_string_pretty(&self)?;
+        writeln!(&mut file, "{}", to_write)?;
+        Ok(())
     }
 
     pub fn get_rand_pic(self: &mut Self, deck_name: &str) -> Option<&str> {
@@ -128,12 +127,9 @@ impl Album {
     }
 
     pub fn remove_last(self: &mut Self) -> Option<Picture> {
-        if let Some(picture) = &self.last_sent {
-            Self::deck_picture_remove(&mut self.pictures, &picture.deck, &picture.url);
-            return self.last_sent.take();
-        } else {
-            return None;
-        }
+        let picture = self.last_sent.as_ref()?;
+        Self::deck_picture_remove(&mut self.pictures, &picture.deck, &picture.url);
+        return self.last_sent.take();
     }
 
     pub fn deck_count(self: &Self) -> usize {
