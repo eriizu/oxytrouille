@@ -122,53 +122,54 @@ pub async fn delete_last(
     album: &Arc<Mutex<crate::album::Album>>,
     http: &Arc<HttpClient>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let response =
-        "Je ne me souvient pas de la dernière image envoyée, donc je n'ai rien supprimé.";
-
     let removed = match album.lock() {
         Ok(mut album) => album.remove_last(),
         Err(_) => None,
     };
-
-    if let Some(removed) = removed {
-        let response = format!(
+    let owned_response: String;
+    let response = if let Some(removed) = removed {
+        owned_response = format!(
             "Depuis le deck {} j'ai supprimé l'image {}",
             removed.deck, removed.url
         );
-        reply_in_chann(http, msg, &response).await?;
+        &owned_response
     } else {
-        reply_in_chann(http, msg, response).await?;
-    }
-
-    Ok(())
+        "Je ne me souvient pas de la dernière image envoyée, donc je n'ai rien supprimé."
+    };
+    reply_in_chann(http, msg, response).await
 }
 
 pub async fn delete_picture(
     msg: Box<MessageCreate>,
-    album: &Arc<Mutex<crate::album::Album>>,
+    album_mutex: &Arc<Mutex<crate::album::Album>>,
     http: &Arc<HttpClient>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut response = "Je n'ai rien supprimé.";
-    let mut split = msg.content.split(' ');
-
-    split.next();
-    let removed = if let Some(deck_name) = split.next() {
-        if let Some(url) = split.next() {
-            match album.lock() {
-                Ok(mut album) => album.remove_picture(deck_name, url),
-                Err(_) => false,
-            }
-        } else {
-            false
-        }
-    } else {
-        false
+    let mut split = msg.content.split(' ').skip(1);
+    // let Some(deck_name) = split.next() else {
+    //     return reply_in_chann(http, msg, "utilisation: ACTION ALBUM URL_IMAGE").await;
+    // };
+    // let Some(pic_url_to_del) = split.next() else {
+    //     return reply_in_chann(http, msg, "utilisation: ACTION ALBUM URL_IMAGE").await;
+    // };
+    let (Some(deck_name), Some(pic_url_to_del)) = (split.next(), split.next()) else {
+        return reply_in_chann(http, msg, "utilisation: ACTION ALBUM URL_IMAGE").await;
     };
+    let mut removed = false;
+    if let Ok(mut album) = album_mutex.lock() {
+        album.remove_picture(deck_name, pic_url_to_del);
+        removed = true;
+    }
 
     if removed {
-        response = "J'ai supprimé l'image !";
+        reply_in_chann(http, msg, "J'ai supprimé l'image !").await?;
+    } else {
+        reply_in_chann(
+            http,
+            msg,
+            "Je n'ai pas réussi à modifier ma base de données.",
+        )
+        .await?;
     }
-    reply_in_chann(http, msg, response).await?;
     Ok(())
 }
 
