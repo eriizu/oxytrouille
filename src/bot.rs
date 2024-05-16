@@ -119,7 +119,7 @@ async fn find_roles_admin(
     return Ok(out);
 }
 
-use twilight_model::id;
+use twilight_model::{gateway::payload::incoming::MessageCreate, id};
 
 const JAPANESE_GUILD_ID: id::Id<id::marker::GuildMarker> =
     unsafe { id::Id::new_unchecked(416194652744450048) };
@@ -143,78 +143,7 @@ async fn handle_event(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     //let trace = tracing::span!(tracing::Level::INFO, "handle event");
     match event {
-        Event::MessageCreate(msg) if msg.author.bot => {
-            eprintln!("ignoring bot command from {}", msg.author.id);
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!reset_nick") => {
-            if admin_guard(&msg, &state, &client).await? {
-                command::reset_nick(msg, &client).await?;
-            }
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!gouvernement") => {
-            client
-                .create_message(msg.channel_id)
-                .reply(msg.id)
-                .content(
-                    "https://clips.twitch.tv/FriendlyResilientSlothShazBotstix-HWxnFQWq6iPPsVZf",
-                )?
-                .await?;
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!add") => {
-            if admin_guard(&msg, &state, &client).await? {
-                command::picture_add(msg, &state.album, &client).await?;
-            }
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!delete_last") => {
-            if admin_guard(&msg, &state, &client).await? {
-                command::delete_last(msg, &state.album, &client).await?;
-            }
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!delete_pic") => {
-            if admin_guard(&msg, &state, &client).await? {
-                command::delete_picture(msg, &state.album, &client).await?;
-            }
-        }
-        Event::MessageCreate(msg) if msg.content.starts_with("!aled") => {
-            command::helper(state.album, msg, client).await?;
-        }
-        Event::MessageCreate(msg) if msg.content.len() > 1 && msg.content.starts_with("!") => {
-            command::picture_find_and_send(state.album, msg, client).await?;
-        }
-        Event::MessageCreate(msg)
-            if msg
-                .mentions
-                .iter()
-                .filter(|mention| mention.id == PROTECTED_USER_ID)
-                .count()
-                != 0
-                && !is_admin(&msg, &state).await? =>
-        {
-            let emoji = twilight_http::request::channel::reaction::RequestReactionType::Custom {
-                id: BAN_EMOJI_ID,
-                name: Some("ban"),
-            };
-            client
-                .create_reaction(msg.channel_id, msg.id, &emoji)
-                .await?;
-            client
-                .create_message(msg.channel_id)
-                .reply(msg.id)
-                .content(
-                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
-                )?
-                .await?;
-            client
-                .create_message(msg.channel_id)
-                .content("Attention !!!\nIl ne faut pas mentionner Julia, parce que les mentions Discord ça peut vite devenir vraiment très relou.\n\nSi vous répondez a un de ses messages, cliquez toujours sur \"@ ACTIVÉ\" (au dessus à droite de la boite de texte) avant l'envoi pour qu'il affiche \"@ DÉSACTIVÉ\"\n\nNE SUPPRIMEZ PAS VOTRE MESSAGE c'est encore pire de recevoir une mention et de ne pas pouvoir retrouver le message d'où elle provient.")?
-                .await?;
-            client
-                .create_message(msg.channel_id)
-                .content(
-                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
-                )?
-                .await?;
-        }
+        Event::MessageCreate(msg) => handle_message(msg, client, state).await?,
         Event::ReactionAdd(reaction) => {
             if reaction.message_id == PRONOUN_MESSAGE_ID {
                 if let twilight_model::channel::message::ReactionType::Unicode { name } =
@@ -245,15 +174,94 @@ async fn handle_event(
                 }
             }
         }
-        Event::MessageCreate(message) => {
-            let author = &message.author.name;
-            let content = &message.content;
-            tracing::debug!(author, content, "no action for this message");
-            //eprintln!("nothing to do with {:?}", message);
-        }
+        // Event::MessageCreate(message) => {
+        //     let author = &message.author.name;
+        //     let content = &message.content;
+        //     tracing::debug!(author, content, "no action for this message");
+        //     //eprintln!("nothing to do with {:?}", message);
+        // }
         _ => {}
     }
 
+    Ok(())
+}
+
+async fn handle_message(
+    msg: Box<MessageCreate>,
+    client: Arc<HttpClient>,
+    state: BotState,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if msg.author.bot {
+        eprintln!("ignoring bot command from {}", msg.author.id);
+    }
+    if msg.content.starts_with("!reset_nick") {
+        if admin_guard(&msg, &state, &client).await? {
+            command::reset_nick(msg, &client).await?;
+        }
+    } else if msg.content.starts_with("!gouvernement") {
+        client
+            .create_message(msg.channel_id)
+            .reply(msg.id)
+            .content("https://clips.twitch.tv/FriendlyResilientSlothShazBotstix-HWxnFQWq6iPPsVZf")?
+            .await?;
+    } else if msg.content.starts_with("!add") {
+        if admin_guard(&msg, &state, &client).await? {
+            command::picture_add(msg, &state.album, &client).await?;
+        }
+    } else if msg.content.starts_with("!delete_last") {
+        if admin_guard(&msg, &state, &client).await? {
+            command::delete_last(msg, &state.album, &client).await?;
+        }
+    } else if msg.content.starts_with("!delete_pic") {
+        if admin_guard(&msg, &state, &client).await? {
+            command::delete_picture(msg, &state.album, &client).await?;
+        }
+    } else if msg.content.starts_with("!aled") {
+        command::helper(state.album, msg, client).await?;
+    } else if msg.content.len() > 1 && msg.content.starts_with("!") {
+        command::picture_find_and_send(state.album, msg, client).await?;
+    } else if msg
+        .mentions
+        .iter()
+        .filter(|mention| mention.id == PROTECTED_USER_ID)
+        .count()
+        != 0
+        && !is_admin(&msg, &state).await?
+    {
+        yell_on_forbidden_mention(msg, client, state).await?;
+    }
+    Ok(())
+}
+
+async fn yell_on_forbidden_mention(
+    msg: Box<MessageCreate>,
+    client: Arc<HttpClient>,
+    state: BotState,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let emoji = twilight_http::request::channel::reaction::RequestReactionType::Custom {
+        id: BAN_EMOJI_ID,
+        name: Some("ban"),
+    };
+    client
+        .create_reaction(msg.channel_id, msg.id, &emoji)
+        .await?;
+    client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content(
+                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
+                )?
+                .await?;
+    client
+                .create_message(msg.channel_id)
+                .content("Attention !!!\nIl ne faut pas mentionner Julia, parce que les mentions Discord ça peut vite devenir vraiment très relou.\n\nSi vous répondez a un de ses messages, cliquez toujours sur \"@ ACTIVÉ\" (au dessus à droite de la boite de texte) avant l'envoi pour qu'il affiche \"@ DÉSACTIVÉ\"\n\nNE SUPPRIMEZ PAS VOTRE MESSAGE c'est encore pire de recevoir une mention et de ne pas pouvoir retrouver le message d'où elle provient.")?
+                .await?;
+    client
+                .create_message(msg.channel_id)
+                .content(
+                    "<:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871><:ban:519852990119673871>",
+                )?
+                .await?;
     Ok(())
 }
 
