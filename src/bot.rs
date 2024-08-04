@@ -7,16 +7,19 @@ use crate::album::Album;
 struct BotState {
     album: Arc<Mutex<crate::album::Album>>,
     admin_roles: Vec<id::Id<id::marker::RoleMarker>>,
+    pause_yell: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 impl BotState {
     fn new(
         alb: Arc<Mutex<crate::album::Album>>,
         admin_roles: Vec<id::Id<id::marker::RoleMarker>>,
+        pause_yell_timer: Arc<Mutex<Option<std::time::Instant>>>,
     ) -> Self {
         Self {
             album: alb,
             admin_roles,
+            pause_yell: pause_yell_timer,
         }
     }
 }
@@ -70,6 +73,7 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
     let client = Arc::new(HttpClient::new(token));
 
     let admin_roles = find_roles_admin(&client).await?;
+    let pause_yell_timer = Arc::new(Mutex::new(None));
 
     let cache = twilight_cache_inmemory::InMemoryCache::new();
 
@@ -92,7 +96,11 @@ pub async fn start(alb: crate::album::Album) -> anyhow::Result<()> {
         tokio::spawn(handle_event(
             event,
             Arc::clone(&client),
-            BotState::new(Arc::clone(&alb), Vec::clone(&admin_roles)),
+            BotState::new(
+                Arc::clone(&alb),
+                Vec::clone(&admin_roles),
+                Arc::clone(&pause_yell_timer),
+            ),
         ));
     }
     return Ok(());
@@ -208,6 +216,35 @@ async fn handle_message(
         if admin_guard(&msg, &state, &client).await? {
             command::picture_add(msg, &state.album, &client).await?;
         }
+    } else if msg.content.starts_with("!resume_yelling") {
+        if admin_guard(&msg, &state, &client).await? {
+            // state.pause_yell = Some(std::time::Instant::now());
+            let text_to_reply = if let Ok(mut pause_yell) = state.pause_yell.lock() {
+                *pause_yell = None;
+                "分かりました。"
+            } else {
+                "J'arrive pas à reset mon timer."
+            };
+            client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content(text_to_reply)?
+                .await?;
+        }
+    } else if msg.content.starts_with("!quit_yelling") {
+        if admin_guard(&msg, &state, &client).await? {
+            let text_to_reply = if let Ok(mut pause_yell) = state.pause_yell.lock() {
+                *pause_yell = Some(std::time::Instant::now());
+                "Ok je me calme pendant une heure ou deux."
+            } else {
+                "J'arrive pas à me canaliser..."
+            };
+            client
+                .create_message(msg.channel_id)
+                .reply(msg.id)
+                .content(text_to_reply)?
+                .await?;
+        }
     } else if msg.content.starts_with("!delete_last") {
         if admin_guard(&msg, &state, &client).await? {
             command::delete_last(msg, &state.album, &client).await?;
@@ -238,6 +275,17 @@ async fn yell_on_forbidden_mention(
     client: Arc<HttpClient>,
     state: BotState,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Ok(mut lock) = state.pause_yell.lock() {
+        if let Some(pause) = *lock {
+            if pause.elapsed() < std::time::Duration::from_secs(3600 * 2) {
+                println!("no need to yell on {} while on pause", msg.author.name);
+                return Ok(());
+            } else {
+                println!("pause has ended, resuming normal yelling");
+                *lock = None;
+            }
+        }
+    }
     let emoji = twilight_http::request::channel::reaction::RequestReactionType::Custom {
         id: BAN_EMOJI_ID,
         name: Some("ban"),
