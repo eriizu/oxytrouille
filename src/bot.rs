@@ -202,6 +202,25 @@ async fn handle_message(
     if msg.author.bot {
         eprintln!("ignoring bot command from {}", msg.author.id);
     }
+    if msg.content.contains("poru") {
+        use twilight_http::request::channel::reaction;
+        let emoji = reaction::RequestReactionType::Unicode { name: "🇵" };
+        client
+            .create_reaction(msg.channel_id, msg.id, &emoji)
+            .await?;
+        let emoji = reaction::RequestReactionType::Unicode { name: "🇴" };
+        client
+            .create_reaction(msg.channel_id, msg.id, &emoji)
+            .await?;
+        let emoji = reaction::RequestReactionType::Unicode { name: "🇷" };
+        client
+            .create_reaction(msg.channel_id, msg.id, &emoji)
+            .await?;
+        let emoji = reaction::RequestReactionType::Unicode { name: "🇺" };
+        client
+            .create_reaction(msg.channel_id, msg.id, &emoji)
+            .await?;
+    }
     if msg.content.starts_with("!reset_nick") {
         if admin_guard(&msg, &state, &client).await? {
             command::reset_nick(msg, &client).await?;
